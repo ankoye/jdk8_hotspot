@@ -45,6 +45,7 @@ inline void Atomic::store_ptr(void*    store_value, volatile void*     dest) { *
 
 
 // Adding a lock prefix to an instruction on MP machine
+// 在多核机器上为指令添加lock前缀
 #define LOCK_IF_MP(mp) "cmp $0, " #mp "; je 1f; lock; 1: "
 
 inline jint     Atomic::add    (jint     add_value, volatile jint*     dest) {
@@ -89,9 +90,15 @@ inline void*    Atomic::xchg_ptr(void*    exchange_value, volatile void*     des
   return (void*)xchg_ptr((intptr_t)exchange_value, (volatile intptr_t*)dest);
 }
 
-
+/**
+ * 比较并交换，如果是多核cpu，添加lock前缀
+ * @param exchange_value
+ * @param dest
+ * @param compare_value
+ * @return
+ */
 inline jint     Atomic::cmpxchg    (jint     exchange_value, volatile jint*     dest, jint     compare_value) {
-  int mp = os::is_MP();
+  int mp = os::is_MP(); // 判断是否是多核cpu
   __asm__ volatile (LOCK_IF_MP(%4) "cmpxchgl %1,(%3)"
                     : "=a" (exchange_value)
                     : "r" (exchange_value), "a" (compare_value), "r" (dest), "r" (mp)
