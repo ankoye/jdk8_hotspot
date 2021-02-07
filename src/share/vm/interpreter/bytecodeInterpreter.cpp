@@ -2126,6 +2126,10 @@ run:
           // Now store the result
           //
           int field_offset = cache->f2_as_index();
+          /**
+           * 修改缓存行时，判断是不是volatile变量
+           * 调用accessFlags.hpp#is_volatile
+           */
           if (cache->is_volatile()) {
             if (tos_type == itos) {
               obj->release_int_field_put(field_offset, STACK_INT(-1));
@@ -2148,6 +2152,7 @@ run:
             } else {
               obj->release_double_field_put(field_offset, STACK_DOUBLE(-1));
             }
+            // 如果是的话，添加上内存屏障
             OrderAccess::storeload();
           } else {
             if (tos_type == itos) {

@@ -31,7 +31,9 @@
 #include "vm_version_x86.hpp"
 
 // Implementation of class OrderAccess.
-
+/**
+ * jdk内存屏障对应cpu内存屏障的实现
+ */
 inline void OrderAccess::loadload()   { acquire(); }
 inline void OrderAccess::storestore() { release(); }
 inline void OrderAccess::loadstore()  { acquire(); }
@@ -52,6 +54,12 @@ inline void OrderAccess::release() {
   volatile jint local_dummy = 0;
 }
 
+/**
+ * cpu级内存屏障实现
+ * 添加上lock前缀执行, lock用于在多处理器中执行指令时对共享内存的独占使用。
+ * 它的作用是能够将当前处理器对应缓存的内容刷新到内存，并使其他处理器对应的缓存失效。
+ * 另外还提供了有序的指令无法越过这个内存屏障的作用。
+ */
 inline void OrderAccess::fence() {
   if (os::is_MP()) {
     // always use locked addl since mfence is sometimes expensive
