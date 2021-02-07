@@ -315,6 +315,9 @@ bool ObjectMonitor::try_enter(Thread* THREAD) {
   }
 }
 
+/**
+ * 重量级锁竞争
+ */
 void ATTR ObjectMonitor::enter(TRAPS) {
   // The following code is ordered to check the most common cases first
   // and to reduce RTS->RTO cache line upgrades on SPARC and IA32 processors.
@@ -953,10 +956,14 @@ void ObjectMonitor::UnlinkAfterAcquire (Thread * Self, ObjectWaiter * SelfNode)
 // Both impinge on OS scalability.  Given that, at most one thread parked on
 // a monitor will use a timer.
 
+/**
+ * 重量级锁的释放
+ * @param not_suspended
+ */
 void ATTR ObjectMonitor::exit(bool not_suspended, TRAPS) {
    Thread * Self = THREAD ;
-   if (THREAD != _owner) {
-     if (THREAD->is_lock_owned((address) _owner)) {
+   if (THREAD != _owner) { // 如果当前锁对象中的_owner没有指向当前线程
+     if (THREAD->is_lock_owned((address) _owner)) { // 如果_owner指向的BasicLock在当前线程栈上,那么将_owner指向当前线程
        // Transmute _owner from a BasicLock pointer to a Thread address.
        // We don't need to hold _mutex for this transition.
        // Non-null to Non-null is safe as long as all readers can
@@ -977,7 +984,7 @@ void ATTR ObjectMonitor::exit(bool not_suspended, TRAPS) {
        return;
      }
    }
-
+   // 如果当前，线程重入锁的次数，不为0，那么就重新走ObjectMonitor::exit，直到重入锁次数为0为止
    if (_recursions != 0) {
      _recursions--;        // this is simple recursive enter
      TEVENT (Inflated exit - recursive) ;

@@ -141,20 +141,20 @@ class ObjectMonitor {
 
   // initialize the monitor, exception the semaphore, all other fields
   // are simple integers or pointers
-  ObjectMonitor() {
+  ObjectMonitor() {         // monitor对象
     _header       = NULL;
     _count        = 0;
     _waiters      = 0,
     _recursions   = 0;
     _object       = NULL;
     _owner        = NULL;
-    _WaitSet      = NULL;
+    _WaitSet      = NULL;   // 等待队列
     _WaitSetLock  = 0 ;
     _Responsible  = NULL ;
     _succ         = NULL ;
     _cxq          = NULL ;
     FreeNext      = NULL ;
-    _EntryList    = NULL ;
+    _EntryList    = NULL ;  // 阻塞队列
     _SpinFreq     = 0 ;
     _SpinClock    = 0 ;
     OwnerIsThread = 0 ;

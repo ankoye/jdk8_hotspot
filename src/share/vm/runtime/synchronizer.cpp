@@ -164,28 +164,43 @@ static volatile int MonitorPopulation = 0 ;      // # Extant -- in circulation
 // some assembly copies of this code. Make sure update those code
 // if the following function is changed. The implementation is
 // extremely sensitive to race condition. Be careful.
-
+/**
+ * 重偏向，如果没有获取成功，则进入slow_enter获取轻量级锁的流程
+ * @param obj
+ * @param lock
+ * @param attempt_rebias
+ */
 void ObjectSynchronizer::fast_enter(Handle obj, BasicLock* lock, bool attempt_rebias, TRAPS) {
  if (UseBiasedLocking) {
     if (!SafepointSynchronize::is_at_safepoint()) {
+      // 如果不是在安全点上，则撤销偏向锁，特殊情形下会重新获取偏向锁
       BiasedLocking::Condition cond = BiasedLocking::revoke_and_rebias(obj, attempt_rebias, THREAD);
+      // 重新获取了偏向锁
       if (cond == BiasedLocking::BIAS_REVOKED_AND_REBIASED) {
         return;
       }
     } else {
       assert(!attempt_rebias, "can not rebias toward VM thread");
+      // 如果在安全点，撤销偏向锁
       BiasedLocking::revoke_at_safepoint(obj);
     }
     assert(!obj->mark()->has_bias_pattern(), "biases should be revoked by now");
  }
-
- slow_enter (obj, lock, THREAD) ;
+ // 如果没有开启偏向锁或者获取偏向锁失败，则进入slow_enter获取轻量级锁的流程
+ slow_enter(obj, lock, THREAD) ;
 }
 
+/**
+ * 释放锁逻辑
+ * 轻量级锁释放逻辑：将当前线程栈帧中锁记录空间中的Mark Word替换到锁对象的对象头中，如果成功表示锁释放成功。
+ * 否则，锁膨胀成重量级锁，实现重量级锁的释放锁逻辑。
+ * @param object
+ * @param lock
+ */
 void ObjectSynchronizer::fast_exit(oop object, BasicLock* lock, TRAPS) {
   assert(!object->mark()->has_bias_pattern(), "should not see bias pattern here");
   // if displaced header is null, the previous enter is recursive enter, no-op
-  markOop dhw = lock->displaced_header();
+  markOop dhw = lock->displaced_header();  // 获取锁对象中的对象头
   markOop mark ;
   if (dhw == NULL) {
      // Recursive stack-lock.
@@ -203,18 +218,19 @@ void ObjectSynchronizer::fast_exit(oop object, BasicLock* lock, TRAPS) {
      return ;
   }
 
-  mark = object->mark() ;
+  mark = object->mark() ; // 获取线程栈帧中锁记录(LockRecord)中的markword
 
   // If the object is stack-locked by the current thread, try to
   // swing the displaced header from the box back to the mark.
   if (mark == (markOop) lock) {
      assert (dhw->is_neutral(), "invariant") ;
+     // 通过CAS尝试将Displaced Mark Word替换回对象头，如果成功，表示锁释放成功。
      if ((markOop) Atomic::cmpxchg_ptr (dhw, object->mark_addr(), mark) == mark) {
         TEVENT (fast_exit: release stacklock) ;
         return;
      }
   }
-
+  // 锁膨胀，调用重量级锁的释放锁方法,ObjectMonitor::exit
   ObjectSynchronizer::inflate(THREAD, object)->exit (true, THREAD) ;
 }
 
@@ -223,21 +239,30 @@ void ObjectSynchronizer::fast_exit(oop object, BasicLock* lock, TRAPS) {
 // This routine is used to handle interpreter/compiler slow case
 // We don't need to use fast path here, because it must have been
 // failed in the interpreter/compiler code.
+/**
+ * 获取轻量级锁，如果cas失败，进行锁升级
+ * @param obj
+ * @param lock
+ */
 void ObjectSynchronizer::slow_enter(Handle obj, BasicLock* lock, TRAPS) {
   markOop mark = obj->mark();
   assert(!mark->has_bias_pattern(), "should not see bias pattern here");
 
+  // 如果当前是无锁状态, markword的biase_lock:0，lock:01
   if (mark->is_neutral()) {
     // Anticipate successful CAS -- the ST of the displaced mark must
     // be visible <= the ST performed by the CAS.
+    // 直接把mark保存到BasicLock对象的_displaced_header字段
     lock->set_displaced_header(mark);
+    // 通过CAS将mark word更新为指向BasicLock对象的指针，更新成功表示获得了轻量级锁
     if (mark == (markOop) Atomic::cmpxchg_ptr(lock, obj()->mark_addr(), mark)) {
       TEVENT (slow_enter: release stacklock) ;
       return ;
     }
     // Fall through to inflate() ...
-  } else
-  if (mark->has_locker() && THREAD->is_lock_owned((address)mark->locker())) {
+  }
+  // 如果markword处于加锁状态、且markword中的ptr指针指向当前线程的栈帧，表示为重入操作，不需要争抢锁
+  else if (mark->has_locker() && THREAD->is_lock_owned((address)mark->locker())) {
     assert(lock != mark->locker(), "must not re-lock the same lock");
     assert(lock != (BasicLock*)obj->mark(), "don't relock with same BasicLock");
     lock->set_displaced_header(NULL);
@@ -257,6 +282,7 @@ void ObjectSynchronizer::slow_enter(Handle obj, BasicLock* lock, TRAPS) {
   // must be non-zero to avoid looking like a re-entrant lock,
   // and must not look locked either.
   lock->set_displaced_header(markOopDesc::unused_mark());
+  // 代码执行到这里，说明有多个线程竞争轻量级锁，进行膨胀升级为重量级锁
   ObjectSynchronizer::inflate(THREAD, obj())->enter(THREAD);
 }
 
@@ -1193,7 +1219,12 @@ ObjectMonitor* ObjectSynchronizer::inflate_helper(oop obj) {
 // Note that we could encounter some performance loss through false-sharing as
 // multiple locks occupy the same $ line.  Padding might be appropriate.
 
-
+/**
+ * 轻量锁膨胀为重量级锁
+ * @param Self
+ * @param object
+ * @return
+ */
 ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
   // Inflate mutates the heap ...
   // Relaxing assertion for bug 6320749.

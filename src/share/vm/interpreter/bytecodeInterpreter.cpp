@@ -945,11 +945,14 @@ BytecodeInterpreter::run(interpreterState istate) {
           markOop new_header = (markOop) ((uintptr_t) header | thread_ident);
           // debugging hint
           DEBUG_ONLY(entry->lock()->set_displaced_header((markOop) (uintptr_t) 0xdeaddead);)
+          // cas尝试获取偏向锁
           if (Atomic::cmpxchg_ptr((void*)new_header, lockee->mark_addr(), header) == header) {
             if (PrintBiasedLockingStatistics) {
               (* BiasedLocking::anonymously_biased_lock_entry_count_addr())++;
             }
-          } else {
+          }
+          // 获取偏向锁失败
+          else {
             CALL_VM(InterpreterRuntime::monitorenter(THREAD, entry), handle_exception);
           }
           success = true;

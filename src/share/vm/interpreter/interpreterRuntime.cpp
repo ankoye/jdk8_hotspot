@@ -605,6 +605,12 @@ IRT_END
 //%note synchronization_3
 
 //%note monitor_1
+/**
+ * synchronized 加锁过程
+ * @param JavaThread 当前获取锁的线程
+ * @param elem 基础对象锁
+ * @return
+ */
 IRT_ENTRY_NO_ASYNC(void, InterpreterRuntime::monitorenter(JavaThread* thread, BasicObjectLock* elem))
 #ifdef ASSERT
   thread->last_frame().interpreter_frame_verify_monitor(elem);
@@ -615,10 +621,12 @@ IRT_ENTRY_NO_ASYNC(void, InterpreterRuntime::monitorenter(JavaThread* thread, Ba
   Handle h_obj(thread, elem->obj());
   assert(Universe::heap()->is_in_reserved_or_null(h_obj()),
          "must be NULL or an object");
-  if (UseBiasedLocking) {
+  if (UseBiasedLocking) { // 是否开启偏向锁
     // Retry fast entry if bias is revoked to avoid unnecessary inflation
+    // 偏向锁
     ObjectSynchronizer::fast_enter(h_obj, elem->lock(), true, CHECK);
   } else {
+    // 轻量级锁
     ObjectSynchronizer::slow_enter(h_obj, elem->lock(), CHECK);
   }
   assert(Universe::heap()->is_in_reserved_or_null(elem->obj()),
@@ -630,6 +638,11 @@ IRT_END
 
 
 //%note monitor_1
+/**
+ * synchronized 轻量级锁释放
+ * @param JavaThread
+ * @return
+ */
 IRT_ENTRY_NO_ASYNC(void, InterpreterRuntime::monitorexit(JavaThread* thread, BasicObjectLock* elem))
 #ifdef ASSERT
   thread->last_frame().interpreter_frame_verify_monitor(elem);
@@ -640,6 +653,7 @@ IRT_ENTRY_NO_ASYNC(void, InterpreterRuntime::monitorexit(JavaThread* thread, Bas
   if (elem == NULL || h_obj()->is_unlocked()) {
     THROW(vmSymbols::java_lang_IllegalMonitorStateException());
   }
+  // slow_exit调用 ObjectSynchronizer::fast_exit 释放锁
   ObjectSynchronizer::slow_exit(h_obj(), elem->lock(), thread);
   // Free entry. This must be done here, since a pending exception might be installed on
   // exit. If it is not cleared, the exception handling code will try to unlock the monitor again.

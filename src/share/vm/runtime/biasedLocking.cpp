@@ -525,7 +525,12 @@ public:
   }
 };
 
-
+/**
+ * 撤销 或 撤销并且重偏向
+ * @param obj
+ * @param attempt_rebias
+ * @return
+ */
 BiasedLocking::Condition BiasedLocking::revoke_and_rebias(Handle obj, bool attempt_rebias, TRAPS) {
   assert(!SafepointSynchronize::is_at_safepoint(), "must not be called while at safepoint");
 
@@ -533,8 +538,8 @@ BiasedLocking::Condition BiasedLocking::revoke_and_rebias(Handle obj, bool attem
   // efficiently enough that we should not cause these revocations to
   // update the heuristics because doing so may cause unwanted bulk
   // revocations (which are expensive) to occur.
-  markOop mark = obj->mark();
-  if (mark->is_biased_anonymously() && !attempt_rebias) {
+  markOop mark = obj->mark(); // 获取锁对象的对象头
+  if (mark->is_biased_anonymously() && !attempt_rebias) { // 判断mark是否为可偏向状态，即mark的偏向锁标志位为1，锁标志位为 01，线程id为null
     // We are probably trying to revoke the bias of this object due to
     // an identity hash code computation. Try to revoke the bias
     // without a safepoint. This is possible if we can successfully
@@ -543,11 +548,12 @@ BiasedLocking::Condition BiasedLocking::revoke_and_rebias(Handle obj, bool attem
     // the bias of the object.
     markOop biased_value       = mark;
     markOop unbiased_prototype = markOopDesc::prototype()->set_age(mark->age());
+    // Atomic:cmpxchg_ptr是CAS操作，通过cas重新设置偏向锁状态
     markOop res_mark = (markOop) Atomic::cmpxchg_ptr(unbiased_prototype, obj->mark_addr(), mark);
-    if (res_mark == biased_value) {
+    if (res_mark == biased_value) { // 如果CAS成功，返回偏向锁撤销状态
       return BIAS_REVOKED;
     }
-  } else if (mark->has_bias_pattern()) {
+  } else if (mark->has_bias_pattern()) { // 如果锁对象为可偏向状态（biased_lock:1, lock:01，不管线程id是否为空）,尝试重新偏向
     Klass* k = obj->klass();
     markOop prototype_header = k->prototype_header();
     if (!prototype_header->has_bias_pattern()) {
@@ -558,10 +564,11 @@ BiasedLocking::Condition BiasedLocking::revoke_and_rebias(Handle obj, bool attem
       // by another thread so we simply return and let the caller deal
       // with it.
       markOop biased_value       = mark;
+      // CAS 更新对象头markword为非偏向锁
       markOop res_mark = (markOop) Atomic::cmpxchg_ptr(prototype_header, obj->mark_addr(), mark);
       assert(!(*(obj->mark_addr()))->has_bias_pattern(), "even if we raced, should still be revoked");
       return BIAS_REVOKED;
-    } else if (prototype_header->bias_epoch() != mark->bias_epoch()) {
+    } else if (prototype_header->bias_epoch() != mark->bias_epoch()) { // 如果偏向锁过期
       // The epoch of this biasing has expired indicating that the
       // object is effectively unbiased. Depending on whether we need
       // to rebias or revoke the bias of this object we can do it
@@ -569,16 +576,18 @@ BiasedLocking::Condition BiasedLocking::revoke_and_rebias(Handle obj, bool attem
       // heuristics. This is normally done in the assembly code but we
       // can reach this point due to various points in the runtime
       // needing to revoke biases.
-      if (attempt_rebias) {
+      if (attempt_rebias) { // 如果允许尝试获取偏向锁
         assert(THREAD->is_Java_thread(), "");
         markOop biased_value       = mark;
         markOop rebiased_prototype = markOopDesc::encode((JavaThread*) THREAD, mark->age(), prototype_header->bias_epoch());
+        // 通过CAS 操作， 将本线程的 ThreadID 、时间错、分代年龄尝试写入对象头中
         markOop res_mark = (markOop) Atomic::cmpxchg_ptr(rebiased_prototype, obj->mark_addr(), mark);
-        if (res_mark == biased_value) {
+        if (res_mark == biased_value) { // 重偏向成功
           return BIAS_REVOKED_AND_REBIASED;
         }
       } else {
         markOop biased_value       = mark;
+        // 通过CAS操作更新分代年龄
         markOop unbiased_prototype = markOopDesc::prototype()->set_age(mark->age());
         markOop res_mark = (markOop) Atomic::cmpxchg_ptr(unbiased_prototype, obj->mark_addr(), mark);
         if (res_mark == biased_value) {
@@ -639,15 +648,20 @@ void BiasedLocking::revoke(GrowableArray<Handle>* objs) {
   VMThread::execute(&revoke);
 }
 
-
+/**
+ * 撤销偏向锁
+ * @param h_obj
+ */
 void BiasedLocking::revoke_at_safepoint(Handle h_obj) {
   assert(SafepointSynchronize::is_at_safepoint(), "must only be called while at safepoint");
   oop obj = h_obj();
+  // 更新撤销偏向锁计数，并返回偏向锁撤销次数和偏向次数
   HeuristicsResult heuristics = update_heuristics(obj, false);
   if (heuristics == HR_SINGLE_REVOKE) {
     revoke_bias(obj, false, false, NULL);
   } else if ((heuristics == HR_BULK_REBIAS) ||
              (heuristics == HR_BULK_REVOKE)) {
+    // 批量撤销
     bulk_revoke_or_rebias_at_safepoint(obj, (heuristics == HR_BULK_REBIAS), false, NULL);
   }
   clean_up_cached_monitor_info();
