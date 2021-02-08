@@ -456,7 +456,10 @@ void Thread::set_priority(Thread* thread, ThreadPriority priority) {
   (void)os::set_priority(thread, priority);
 }
 
-
+/**
+ * thread#step2：启动线程
+ * @param thread
+ */
 void Thread::start(Thread* thread) {
   trace("start", thread);
   // Start is different from resume in that its safety is guaranteed by context or
@@ -470,6 +473,7 @@ void Thread::start(Thread* thread) {
       java_lang_Thread::set_thread_status(((JavaThread*)thread)->threadObj(),
                                           java_lang_Thread::RUNNABLE);
     }
+    // 启动操作系统线程
     os::start_thread(thread);
   }
 }
@@ -1563,6 +1567,11 @@ void JavaThread::block_if_vm_exited() {
 // Remove this ifdef when C1 is ported to the compiler interface.
 static void compiler_thread_entry(JavaThread* thread, TRAPS);
 
+/**
+ * JVM级线程
+ * @param entry_point
+ * @param stack_sz
+ */
 JavaThread::JavaThread(ThreadFunction entry_point, size_t stack_sz) :
   Thread()
 #if INCLUDE_ALL_GCS
@@ -1581,6 +1590,7 @@ JavaThread::JavaThread(ThreadFunction entry_point, size_t stack_sz) :
   os::ThreadType thr_type = os::java_thread;
   thr_type = entry_point == &compiler_thread_entry ? os::compiler_thread :
                                                      os::java_thread;
+  // 创建线程
   os::create_thread(this, thr_type, stack_sz);
   // The _osthread may be NULL here because we ran out of memory (too many threads active).
   // We need to throw and OutOfMemoryError - however we cannot do this here because the caller
@@ -1634,6 +1644,10 @@ JavaThread::~JavaThread() {
 
 
 // The first routine called by a new Java thread
+/**
+ * thread#step4：执行run方法
+ * 执行run方法，最终会调用 jvm#thread_entry 方法
+ */
 void JavaThread::run() {
   // initialize thread-local alloc buffer related fields
   this->initialize_tlab();

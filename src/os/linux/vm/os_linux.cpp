@@ -831,17 +831,26 @@ static void *java_start(Thread *thread) {
     sync->notify_all();
 
     // wait until os::start_thread()
+    // 如果是INITIALIZED状态，调用wait方法
     while (osthread->get_state() == INITIALIZED) {
       sync->wait(Mutex::_no_safepoint_check_flag);
     }
   }
 
   // call one more level start routine
+  /// 线程被唤醒后执行 JavaThread::run
   thread->run();
 
   return 0;
 }
 
+/**
+ * 操作系统级别线程
+ * @param thread
+ * @param thr_type
+ * @param stack_size
+ * @return
+ */
 bool os::create_thread(Thread* thread, ThreadType thr_type, size_t stack_size) {
   assert(thread->osthread() == NULL, "caller responsible");
 
@@ -911,6 +920,7 @@ bool os::create_thread(Thread* thread, ThreadType thr_type, size_t stack_size) {
     }
 
     pthread_t tid;
+    // 调用pthread_create创建线程(底层调用内核clone方法)，并调用java_start方法
     int ret = pthread_create(&tid, &attr, (void* (*)(void*)) java_start, thread);
 
     pthread_attr_destroy(&attr);
@@ -1023,11 +1033,15 @@ bool os::create_attached_thread(JavaThread* thread) {
   return true;
 }
 
+/**
+ * thread#step3：唤醒线程
+ */
 void os::pd_start_thread(Thread* thread) {
   OSThread * osthread = thread->osthread();
   assert(osthread->get_state() != INITIALIZED, "just checking");
   Monitor* sync_with_child = osthread->startThread_lock();
   MutexLockerEx ml(sync_with_child, Mutex::_no_safepoint_check_flag);
+  /// 唤醒线程被 java_start wait的线程 ，执行run方法
   sync_with_child->notify();
 }
 

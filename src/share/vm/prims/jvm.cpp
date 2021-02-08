@@ -2993,19 +2993,25 @@ void jio_print(const char* s) {
 // instance), and are very unlikely.  Because IsAlive needs to be fast and its
 // implementation is local to this file, we always lock Threads_lock for that one.
 
+/**
+ * thread#step5：通过JavaCalls调用Java线程对象的run方法
+ */
 static void thread_entry(JavaThread* thread, TRAPS) {
   HandleMark hm(THREAD);
   Handle obj(THREAD, thread->threadObj());
   JavaValue result(T_VOID);
   JavaCalls::call_virtual(&result,
-                          obj,
-                          KlassHandle(THREAD, SystemDictionary::Thread_klass()),
-                          vmSymbols::run_method_name(),
-                          vmSymbols::void_method_signature(),
+                          obj,  // Java线程对象
+                          KlassHandle(THREAD, SystemDictionary::Thread_klass()),  // java_lang_Thread
+                          vmSymbols::run_method_name(),       // run
+                          vmSymbols::void_method_signature(), // ()V
                           THREAD);
 }
 
-
+/**
+ * thread#step1：创建线程
+ * Java调用的start0方法
+ */
 JVM_ENTRY(void, JVM_StartThread(JNIEnv* env, jobject jthread))
   JVMWrapper("JVM_StartThread");
   JavaThread *native_thread = NULL;
@@ -3041,6 +3047,7 @@ JVM_ENTRY(void, JVM_StartThread(JNIEnv* env, jobject jthread))
       // size_t (an unsigned type), so avoid passing negative values which would
       // result in really large stacks.
       size_t sz = size > 0 ? (size_t) size : 0;
+      /// 1.创建线程，JavaThread::JavaThread
       native_thread = new JavaThread(&thread_entry, sz);
 
       // At this point it may be possible that no osthread was created for the
@@ -3051,6 +3058,7 @@ JVM_ENTRY(void, JVM_StartThread(JNIEnv* env, jobject jthread))
       // JavaThread constructor.
       if (native_thread->osthread() != NULL) {
         // Note: the current thread is not being used within "prepare".
+        /// 2.将Java中的Thread和JVM中的Thread进行绑定
         native_thread->prepare(jthread);
       }
     }
@@ -3073,7 +3081,7 @@ JVM_ENTRY(void, JVM_StartThread(JNIEnv* env, jobject jthread))
     THROW_MSG(vmSymbols::java_lang_OutOfMemoryError(),
               "unable to create new native thread");
   }
-
+  /// 3.启动线程
   Thread::start(native_thread);
 
 JVM_END
