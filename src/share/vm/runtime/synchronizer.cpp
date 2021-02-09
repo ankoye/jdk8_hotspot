@@ -165,7 +165,7 @@ static volatile int MonitorPopulation = 0 ;      // # Extant -- in circulation
 // if the following function is changed. The implementation is
 // extremely sensitive to race condition. Be careful.
 /**
- * 重偏向，如果没有获取成功，则进入slow_enter获取轻量级锁的流程
+ * synchronized#step2：撤销偏向锁并升级轻量锁，特殊情形下会进行重偏向
  * @param obj
  * @param lock
  * @param attempt_rebias
@@ -186,14 +186,14 @@ void ObjectSynchronizer::fast_enter(Handle obj, BasicLock* lock, bool attempt_re
     }
     assert(!obj->mark()->has_bias_pattern(), "biases should be revoked by now");
  }
- // 如果没有开启偏向锁或者获取偏向锁失败，则进入slow_enter获取轻量级锁的流程
+ /// 如果没有开启偏向锁或者获取偏向锁失败，则进入slow_enter获取轻量级锁的流程
  slow_enter(obj, lock, THREAD) ;
 }
 
 /**
- * 释放锁逻辑
+ * synchronized#step8：释放锁逻辑
  * 轻量级锁释放逻辑：将当前线程栈帧中锁记录空间中的Mark Word替换到锁对象的对象头中，如果成功表示锁释放成功。
- * 否则，锁膨胀成重量级锁，实现重量级锁的释放锁逻辑。
+ * 否则锁膨胀成重量级锁，实现重量级锁的释放锁逻辑。
  * @param object
  * @param lock
  */
@@ -230,7 +230,7 @@ void ObjectSynchronizer::fast_exit(oop object, BasicLock* lock, TRAPS) {
         return;
      }
   }
-  // 锁膨胀，调用重量级锁的释放锁方法,ObjectMonitor::exit
+  /// 锁膨胀，调用重量级锁的释放锁方法，ObjectMonitor::exit
   ObjectSynchronizer::inflate(THREAD, object)->exit (true, THREAD) ;
 }
 
@@ -240,7 +240,7 @@ void ObjectSynchronizer::fast_exit(oop object, BasicLock* lock, TRAPS) {
 // We don't need to use fast path here, because it must have been
 // failed in the interpreter/compiler code.
 /**
- * 获取轻量级锁，如果cas失败，进行锁升级
+ * synchronized#step3：获取轻量级锁，如果cas失败，进行锁升级
  * @param obj
  * @param lock
  */
@@ -248,7 +248,7 @@ void ObjectSynchronizer::slow_enter(Handle obj, BasicLock* lock, TRAPS) {
   markOop mark = obj->mark();
   assert(!mark->has_bias_pattern(), "should not see bias pattern here");
 
-  // 如果当前是无锁状态, markword的biase_lock:0，lock:01
+  /// 如果当前是无锁状态, markword的偏向锁标志位为0，锁标志位为01
   if (mark->is_neutral()) {
     // Anticipate successful CAS -- the ST of the displaced mark must
     // be visible <= the ST performed by the CAS.
@@ -261,7 +261,7 @@ void ObjectSynchronizer::slow_enter(Handle obj, BasicLock* lock, TRAPS) {
     }
     // Fall through to inflate() ...
   }
-  // 如果markword处于加锁状态、且markword中的ptr指针指向当前线程的栈帧，表示为重入操作，不需要争抢锁
+  /// 如果markword处于加锁状态、且markword中的ptr指针指向当前线程的栈帧，表示为重入操作，不需要争抢锁
   else if (mark->has_locker() && THREAD->is_lock_owned((address)mark->locker())) {
     assert(lock != mark->locker(), "must not re-lock the same lock");
     assert(lock != (BasicLock*)obj->mark(), "don't relock with same BasicLock");
@@ -282,7 +282,7 @@ void ObjectSynchronizer::slow_enter(Handle obj, BasicLock* lock, TRAPS) {
   // must be non-zero to avoid looking like a re-entrant lock,
   // and must not look locked either.
   lock->set_displaced_header(markOopDesc::unused_mark());
-  // 代码执行到这里，说明有多个线程竞争轻量级锁，进行膨胀升级为重量级锁
+  /// 代码执行到这里，说明有多个线程竞争轻量级锁，进行膨胀升级为重量级锁
   ObjectSynchronizer::inflate(THREAD, obj())->enter(THREAD);
 }
 
@@ -1220,7 +1220,7 @@ ObjectMonitor* ObjectSynchronizer::inflate_helper(oop obj) {
 // multiple locks occupy the same $ line.  Padding might be appropriate.
 
 /**
- * 轻量锁膨胀为重量级锁
+ * synchronized#step4：轻量锁膨胀为重量级锁
  * @param Self
  * @param object
  * @return
@@ -1242,7 +1242,7 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
       // *  Neutral      - aggressively inflate the object. 使锁对象膨胀
       // *  BIASED       - Illegal.  We should never see this 不合法，不应该看到这种状态
 
-      // 情况1. 已经膨胀过了，有重量级锁标志
+      /// 情况1. 已经膨胀过了，有重量级锁标志
       // CASE: inflated
       if (mark->has_monitor()) {
           ObjectMonitor * inf = mark->monitor() ;
@@ -1252,7 +1252,7 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
           return inf ;
       }
 
-      // 情况2. 正在膨胀。有线程正在从栈上加锁状态膨胀，只有该线程能够完成膨胀，其他线程必须等待。
+      /// 情况2. 膨胀等待，表示存在线程正在膨胀，通过continue进行下一轮的膨胀
       // 这个时候，当前线程需要等待膨胀完成，可以 spin/yield/park 并且轮询 markword 状态
       // 也可以让当前线程阻塞在辅助链表上，以避免轮询
       // CASE: inflation in progress - inflating over a stack-lock.
@@ -1267,7 +1267,7 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
          continue ;
       }
 
-      // 情况3. 栈上加锁。可能是当前线程也可能是其他线程加的锁
+      /// 情况3. 表示当前锁为轻量级锁，以下是轻量级锁的膨胀逻辑
       // CASE: stack-locked
       // Could be stack-locked either by this thread or by some other thread.
       //

@@ -606,7 +606,7 @@ IRT_END
 
 //%note monitor_1
 /**
- * synchronized 加锁过程
+ * synchronized#step1：加锁过程
  * @param JavaThread 当前获取锁的线程
  * @param elem 基础对象锁
  * @return
@@ -623,10 +623,10 @@ IRT_ENTRY_NO_ASYNC(void, InterpreterRuntime::monitorenter(JavaThread* thread, Ba
          "must be NULL or an object");
   if (UseBiasedLocking) { // 是否开启偏向锁
     // Retry fast entry if bias is revoked to avoid unnecessary inflation
-    // 偏向锁
+    /// 偏向锁
     ObjectSynchronizer::fast_enter(h_obj, elem->lock(), true, CHECK);
   } else {
-    // 轻量级锁
+    /// 轻量级锁
     ObjectSynchronizer::slow_enter(h_obj, elem->lock(), CHECK);
   }
   assert(Universe::heap()->is_in_reserved_or_null(elem->obj()),
@@ -639,7 +639,7 @@ IRT_END
 
 //%note monitor_1
 /**
- * synchronized 轻量级锁释放
+ * synchronized#step7：轻量级锁释放
  * @param JavaThread
  * @return
  */

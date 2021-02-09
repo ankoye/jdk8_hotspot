@@ -316,7 +316,7 @@ bool ObjectMonitor::try_enter(Thread* THREAD) {
 }
 
 /**
- * 重量级锁竞争
+ * synchronized#step5：重量级锁竞争
  */
 void ATTR ObjectMonitor::enter(TRAPS) {
   // The following code is ordered to check the most common cases first
@@ -407,7 +407,7 @@ void ATTR ObjectMonitor::enter(TRAPS) {
       jt->set_suspend_equivalent();
       // cleared by handle_special_suspend_equivalent_condition()
       // or java_suspend_self()
-
+      /// 如果获取锁失败，则需要通过自旋的方式等待锁释放
       EnterI (THREAD) ;
 
       if (!ExitSuspendEquivalent(jt)) break ;
@@ -502,6 +502,9 @@ int ObjectMonitor::TryLock (Thread * Self) {
    }
 }
 
+/**
+ * synchronized#step6：自旋等待锁释放
+ */
 void ATTR ObjectMonitor::EnterI (TRAPS) {
     Thread * Self = THREAD ;
     assert (Self->is_Java_thread(), "invariant") ;
@@ -556,6 +559,7 @@ void ATTR ObjectMonitor::EnterI (TRAPS) {
     // Note that spinning tends to reduce the rate at which threads
     // enqueue and dequeue on EntryList|cxq.
     ObjectWaiter * nxt ;
+    /// 自旋，将node添加到_cxq队列
     for (;;) {
         node._next = nxt = _cxq ;
         if (Atomic::cmpxchg_ptr (&node, &_cxq, nxt) == nxt) break ;
@@ -613,7 +617,7 @@ void ATTR ObjectMonitor::EnterI (TRAPS) {
     TEVENT (Inflated enter - Contention) ;
     int nWakeups = 0 ;
     int RecheckInterval = 1 ;
-
+    /// node节点添加到_cxq队列之后，继续通过自旋尝试获取锁，如果在指定的阈值范围内没有获得锁，则通过park将当前线程挂起，等待被唤醒
     for (;;) {
 
         if (TryLock (Self) > 0) break ;
@@ -957,7 +961,7 @@ void ObjectMonitor::UnlinkAfterAcquire (Thread * Self, ObjectWaiter * SelfNode)
 // a monitor will use a timer.
 
 /**
- * 重量级锁的释放
+ * synchronized#step9：重量级锁的释放
  * @param not_suspended
  */
 void ATTR ObjectMonitor::exit(bool not_suspended, TRAPS) {

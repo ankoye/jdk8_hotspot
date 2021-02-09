@@ -539,7 +539,8 @@ BiasedLocking::Condition BiasedLocking::revoke_and_rebias(Handle obj, bool attem
   // update the heuristics because doing so may cause unwanted bulk
   // revocations (which are expensive) to occur.
   markOop mark = obj->mark(); // 获取锁对象的对象头
-  if (mark->is_biased_anonymously() && !attempt_rebias) { // 判断mark是否为可偏向状态，即mark的偏向锁标志位为1，锁标志位为 01，线程id为null
+  /// 判断mark是否为可偏向状态（即mark的偏向锁标志位为1，锁标志位为 01，线程id为null）且不重偏向
+  if (mark->is_biased_anonymously() && !attempt_rebias) {
     // We are probably trying to revoke the bias of this object due to
     // an identity hash code computation. Try to revoke the bias
     // without a safepoint. This is possible if we can successfully
@@ -553,7 +554,9 @@ BiasedLocking::Condition BiasedLocking::revoke_and_rebias(Handle obj, bool attem
     if (res_mark == biased_value) { // 如果CAS成功，返回偏向锁撤销状态
       return BIAS_REVOKED;
     }
-  } else if (mark->has_bias_pattern()) { // 如果锁对象为可偏向状态（biased_lock:1, lock:01，不管线程id是否为空）,尝试重新偏向
+  }
+  /// 如果锁对象为可偏向状态（偏向锁标志位为1，锁标志位为 01，不管线程id是否为空），尝试重新偏向
+  else if (mark->has_bias_pattern()) {
     Klass* k = obj->klass();
     markOop prototype_header = k->prototype_header();
     if (!prototype_header->has_bias_pattern()) {

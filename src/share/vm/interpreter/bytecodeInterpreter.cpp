@@ -880,6 +880,7 @@ BytecodeInterpreter::run(interpreterState istate) {
       }
       goto run;
     }
+    // synchronized#step
     case got_monitors: {
       // continue locking now that we have a monitor to use
       // we expect to find newly allocated monitor at the "top" of the monitor stack.
