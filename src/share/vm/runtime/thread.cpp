@@ -3017,6 +3017,11 @@ ThreadPriority JavaThread::java_priority() const {
   return priority;
 }
 
+/**
+ * 将Java中的Thread和JVM中的Thread进行绑定
+ * @param jni_thread
+ * @param prio
+ */
 void JavaThread::prepare(jobject jni_thread, ThreadPriority prio) {
 
   assert(Threads_lock->owner() == Thread::current(), "must have threads lock");
@@ -3038,6 +3043,7 @@ void JavaThread::prepare(jobject jni_thread, ThreadPriority prio) {
   assert(InstanceKlass::cast(thread_oop->klass())->is_linked(),
     "must be initialized");
   set_threadObj(thread_oop());
+  // 进行绑定
   java_lang_Thread::set_thread(thread_oop(), this);
 
   if (prio == NoPriority) {

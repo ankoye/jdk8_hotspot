@@ -3058,7 +3058,7 @@ JVM_ENTRY(void, JVM_StartThread(JNIEnv* env, jobject jthread))
       // JavaThread constructor.
       if (native_thread->osthread() != NULL) {
         // Note: the current thread is not being used within "prepare".
-        /// 2.将Java中的Thread和JVM中的Thread进行绑定
+        /// 2.将Java中的Thread和JVM中的Thread进行绑定，JavaThread::prepare
         native_thread->prepare(jthread);
       }
     }
